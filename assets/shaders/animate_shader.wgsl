@@ -286,7 +286,7 @@ fn shooting_star(coord: vec2<f32>, time: f32) -> vec3<f32> {
     var result = vec3<f32>(0.0);
     
     // Parameters for multiple comets
-    let comet_count = 3; // Number of potential comets
+    let comet_count = 6; // Increased number of potential comets
     
     for (var i = 0; i < comet_count; i = i + 1) {
         // Unique parameters for each comet
@@ -294,18 +294,18 @@ fn shooting_star(coord: vec2<f32>, time: f32) -> vec3<f32> {
         let offset = fi * 2.1;
         let speed_factor = 0.7 + hash(vec2<f32>(fi + 0.1, fi + 0.2)) * 0.6; // 0.7-1.3 speed range
         
-        // Show each comet with different timing
-        let show_threshold = 0.85 + fi * 0.03; // Stagger the comets
+        // Much higher probability for comets to appear
+        let show_threshold = 0.5 + fi * 0.1; // Much lower threshold = more comets
         let show_time = sin(time * 0.05 + offset) > show_threshold;
         
         if (!show_time) {
             continue;
         }
         
-        // Shooting star parameters - varied by comet
+        // Shooting star parameters - larger, more visible comets
         let star_speed = 0.3 * speed_factor;
-        let length = 0.1 + hash(vec2<f32>(fi + 0.3, fi + 0.4)) * 0.15; // 0.1-0.25 length
-        let width = 0.002 + hash(vec2<f32>(fi + 0.5, fi + 0.6)) * 0.002; // 0.002-0.004 width
+        let length = 0.15 + hash(vec2<f32>(fi + 0.3, fi + 0.4)) * 0.25; // 0.15-0.4 length (longer)
+        let width = 0.004 + hash(vec2<f32>(fi + 0.5, fi + 0.6)) * 0.004; // 0.004-0.008 width (thicker)
         
         // Different starting positions and trajectories
         let shooting_time = fract(time * 0.1 + offset);
@@ -337,7 +337,8 @@ fn shooting_star(coord: vec2<f32>, time: f32) -> vec3<f32> {
             hash(vec2<f32>(fi + 1.3, fi + 1.4))
         );
         
-        result += comet_color * trail_intensity * fade * 2.5 * f32(in_trail);
+        // Much brighter comet effect
+        result += comet_color * trail_intensity * fade * 5.0 * f32(in_trail);
     }
     
     return result;
@@ -376,6 +377,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let small_noise = fbm(noise_coord * 4.0 + vec2<f32>(time * 0.2, 0.0), 2) * 0.4;
     let detail_intensity = small_noise * intensity * 0.8;
     
+    // Additional fine detail layer for more complexity
+    let fine_noise = fbm(noise_coord * 8.0 + vec2<f32>(time * 0.3, time * 0.15), 3) * 0.3;
+    let fine_detail = fine_noise * intensity * smoothstep(0.2, 0.8, large_noise) * 0.6;
+    
     // Time-varying parameters for color animation
     let t1 = sin(time * 0.3) * 0.5 + 0.5;
     let t2 = cos(time * 0.2) * 0.5 + 0.5;
@@ -387,20 +392,74 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let teal = vec3<f32>(0.7, -0.1, 0.1);                 // Bluish-green
     let blue = vec3<f32>(0.701674, 0.174566, -0.269156);  // Cold blue
     let purple = vec3<f32>(0.7, 0.3, -0.1);               // Purplish hue
+    let red = vec3<f32>(0.75, 0.35, 0.15);               // Reddish aurora
+    let pink = vec3<f32>(0.78, 0.27, 0.05);              // Pinkish aurora
     
     // Final color is a complex mix based on multiple parameters
     let color1 = mix(green, teal, t1);
     let color2 = mix(blue, purple, t2);
-    let mixed_color = mix(color1, color2, t3 * dist_factor + detail_intensity);
+    // Add fine detail to the color mixing for more complexity
+    let mixed_color = mix(color1, color2, t3 * dist_factor + detail_intensity + fine_detail * 0.5);
     
     // Apply intensity to color and convert back to linear RGB
-    let aurora_lab_color = mixed_color * (intensity + detail_intensity * 0.7);
+    // Include fine detail layer in the final intensity
+    let aurora_lab_color = mixed_color * (intensity + detail_intensity * 0.7 + fine_detail * 0.6);
     let rgb_color = oklab_to_linear_srgb(aurora_lab_color);
     
     // Add a subtle glow effect
     let glow = intensity * 0.4;
     let glow_color = mix(vec3<f32>(0.05, 0.1, 0.2), rgb_color, intensity);
-    let aurora_color = rgb_color + glow_color * glow;
+    
+    // Add a second fine detail pattern with different orientation
+    let cross_detail = fbm(vec2<f32>(coord.y * 6.0, coord.x * 12.0) + vec2<f32>(time * 0.15, -time * 0.05), 2) * 0.2;
+    let cross_effect = cross_detail * smoothstep(0.0, 0.6, intensity) * 0.3;
+    
+    // Fine wisps in the aurora
+    let wisps = smoothstep(0.3, 0.7, sin(coord.y * 30.0 + large_noise * 10.0 + time * 0.2)) * intensity * 0.15;
+    
+    // Create a second, reddish aurora layer with offset
+    // Use a different offset and scale for the second aurora
+    let aurora2_offset = vec2<f32>(0.2, -0.1); // Offset for the second aurora
+    let aurora2_noise_coord = vec2<f32>(
+        coord.x * 1.5 + aurora2_offset.x,
+        coord.y * 2.5 + aurora2_offset.y
+    ) + vec2<f32>(time * 0.08, time * 0.02); // Different speed
+    
+    // Additional high-frequency detail for second aurora
+    let aurora2_detail_coord = aurora2_noise_coord * 3.0 + vec2<f32>(time * -0.2, time * 0.1);
+    let aurora2_detail = fbm(aurora2_detail_coord, 2) * 0.5;
+    
+    // Create wave patterns for second aurora
+    let aurora2_large_noise = fbm(aurora2_noise_coord, 3) * 0.7;
+    let aurora2_wave = sin(coord.y * 10.0 + time * 0.8 + aurora2_large_noise * 4.0) * 0.07;
+    let aurora2_displaced_x = coord.x + aurora2_wave;
+    
+    // Different flow pattern
+    let aurora2_flow = sin(aurora2_displaced_x * 8.0 + aurora2_large_noise * 2.0 + time * 0.5) * 0.5 + 0.5;
+    // Concentrated more toward the top
+    let aurora2_height_mask = smoothstep(0.0, 0.6, 1.0 - abs(coord.y - 0.6) * 2.0);
+    let aurora2_intensity = aurora2_flow * aurora2_height_mask * smoothstep(0.0, 0.4, aurora2_large_noise);
+    
+    // Reddish color mix for second aurora
+    let t4 = sin(time * 0.25) * 0.5 + 0.5;
+    let aurora2_color_mix = mix(red, pink, t4);
+    
+    // Convert to RGB with reduced intensity compared to main aurora
+    // Incorporate the high-frequency detail into the aurora
+    let aurora2_lab_color = aurora2_color_mix * (aurora2_intensity * 0.7 + aurora2_detail * aurora2_intensity * 0.4);
+    let aurora2_rgb = oklab_to_linear_srgb(aurora2_lab_color);
+    
+    // Add some fine wispy structures to the second aurora
+    let aurora2_wisps = smoothstep(0.4, 0.6, sin(coord.y * 40.0 + aurora2_large_noise * 15.0 + time * 0.3)) * 
+                       aurora2_intensity * 0.2;
+    let aurora2_wisp_color = oklab_to_linear_srgb(mix(red, pink, 0.3) * aurora2_wisps);
+    
+    // Combine all effects for final aurora color
+    let aurora_color = rgb_color + glow_color * glow + 
+                      vec3<f32>(0.1, 0.15, 0.2) * cross_effect + 
+                      rgb_color * wisps +
+                      aurora2_rgb + // Add the second aurora layer
+                      aurora2_wisp_color; // Add additional wisps to second aurora
     
     // Generate stars and celestial elements
     let star_color = stars(coord, time);
