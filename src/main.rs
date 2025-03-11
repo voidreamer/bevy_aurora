@@ -24,7 +24,7 @@ fn setup(
 ) {
     // cube
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::default())),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(10.0, 10.0))),
         MeshMaterial3d(materials.add(CustomMaterial {})),
         Transform::from_xyz(0.0, 0.5, 0.0),
     ));
