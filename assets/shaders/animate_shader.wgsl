@@ -1,4 +1,3 @@
-// The time since startup data is in the globals binding which is part of the mesh_view_bindings import
 #import bevy_pbr::{
     mesh_view_bindings::globals,
     forward_io::VertexOutput,
@@ -63,7 +62,7 @@ fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
     return value;
 }
 
-// Realistic star field with random size variations, pulsation and twinkling
+// Star field with random size variations, pulsation and twinkling
 fn stars(coord: vec2<f32>, time: f32) -> vec3<f32> {
     var star_color = vec3<f32>(0.0);
     
@@ -83,7 +82,6 @@ fn stars(coord: vec2<f32>, time: f32) -> vec3<f32> {
     // Base star field noise
     let n = hash(coord * scale + offset);
     
-    // Much lower threshold for a dramatic increase in star count
     let base_threshold = 0.95; 
     
     // Subtle depth variation noise - used to vary star brightness and behavior
@@ -281,67 +279,9 @@ fn nebula(coord: vec2<f32>, time: f32) -> vec3<f32> {
     return nebula_color * nebula_noise * smoothstep(0.4, 0.6, noise21(coord * 3.0 + vec2<f32>(time * 0.03, 0.0)));
 }
 
-// Enhanced shooting star effect with multiple comets
+// Empty shooting star function - comets removed
 fn shooting_star(coord: vec2<f32>, time: f32) -> vec3<f32> {
-    var result = vec3<f32>(0.0);
-    
-    // Parameters for multiple comets
-    let comet_count = 6; // Increased number of potential comets
-    
-    for (var i = 0; i < comet_count; i = i + 1) {
-        // Unique parameters for each comet
-        let fi = f32(i); // Convert loop index to float
-        let offset = fi * 2.1;
-        let speed_factor = 0.7 + hash(vec2<f32>(fi + 0.1, fi + 0.2)) * 0.6; // 0.7-1.3 speed range
-        
-        // Much higher probability for comets to appear
-        let show_threshold = 0.5 + fi * 0.1; // Much lower threshold = more comets
-        let show_time = sin(time * 0.05 + offset) > show_threshold;
-        
-        if (!show_time) {
-            continue;
-        }
-        
-        // Shooting star parameters - larger, more visible comets
-        let star_speed = 0.3 * speed_factor;
-        let length = 0.15 + hash(vec2<f32>(fi + 0.3, fi + 0.4)) * 0.25; // 0.15-0.4 length (longer)
-        let width = 0.004 + hash(vec2<f32>(fi + 0.5, fi + 0.6)) * 0.004; // 0.004-0.008 width (thicker)
-        
-        // Different starting positions and trajectories
-        let shooting_time = fract(time * 0.1 + offset);
-        let start_x = 0.8 + hash(vec2<f32>(fi + 0.7, fi + 0.8)) * 0.4; // 0.8-1.2 range
-        let start_y = 0.4 + hash(vec2<f32>(fi + 0.9, fi + 1.0)) * 0.5; // 0.4-0.9 range
-        let trajectory = 0.4 + hash(vec2<f32>(fi + 1.1, fi + 1.2)) * 0.6; // 0.4-1.0 range
-        
-        let pos = vec2<f32>(
-            start_x - shooting_time * 1.5 * speed_factor, // X movement (right to left)
-            start_y - shooting_time * trajectory  // Y movement (varied downward trajectory)
-        );
-        
-        // Trail calculation
-        let trail_dir = normalize(vec2<f32>(-star_speed, -star_speed * trajectory));
-        let coord_proj = dot(coord - pos, trail_dir);
-        let coord_orth = length(coord - pos - coord_proj * trail_dir);
-        
-        // Trail visibility
-        let in_trail = coord_proj > -length && coord_proj < 0.0 && coord_orth < width;
-        let trail_intensity = smoothstep(0.0, -length, coord_proj) * smoothstep(width, 0.0, coord_orth);
-        
-        // Fade trail based on time
-        let fade = smoothstep(0.0, 0.3, shooting_time) * smoothstep(1.0, 0.7, shooting_time);
-        
-        // Different comet colors
-        let comet_color = mix(
-            vec3<f32>(1.0, 0.95, 0.9), // White-yellow
-            vec3<f32>(0.95, 0.8, 0.7), // Slightly orange-ish
-            hash(vec2<f32>(fi + 1.3, fi + 1.4))
-        );
-        
-        // Much brighter comet effect
-        result += comet_color * trail_intensity * fade * 5.0 * f32(in_trail);
-    }
-    
-    return result;
+    return vec3<f32>(0.0);
 }
 
 @fragment
@@ -349,6 +289,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Aurora-specific parameters
     let time = globals.time * 0.2;
     let coord = in.uv;
+    
+    // Fix potential artifact at the beginning by avoiding uninitialized values
+    if (time < 0.1) {
+        // Just show a simple starfield during the first moment to avoid artifact
+        return vec4<f32>(stars(coord, 1.0) * 2.0 + vec3<f32>(0.01, 0.02, 0.05), 1.0);
+    }
+    
+    // The variable we'll use for the final color
+    var result_color = vec3<f32>(0.0);
     
     // Aurora tends to appear in bands across the sky
     let y_stretch = 3.0; // Stretch the effect vertically
@@ -381,6 +330,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let fine_noise = fbm(noise_coord * 8.0 + vec2<f32>(time * 0.3, time * 0.15), 3) * 0.3;
     let fine_detail = fine_noise * intensity * smoothstep(0.2, 0.8, large_noise) * 0.6;
     
+    // Dynamic intensity layer - random surges in brightness on a different cadence
+    // Create a different pulsing pattern with irregular timing for variety
+    let surge_frequency = 0.03; // Different frequency from curtains for variety
+    let surge_phase = hash(floor(vec2<f32>(time * surge_frequency, 1.0))); // Different seed
+    let surge_timing = smoothstep(0.7, 0.9, sin(time * surge_frequency * 6.28 + surge_phase * 10.0));
+    
+    // Make surges more localized and subtle
+    let surge_x = coord.x * 3.0 + large_noise * 2.0;
+    let surge_y = coord.y * 4.0 + large_noise * 3.0;
+    
+    // Spatial patterns for surges
+    let surge_pattern1 = smoothstep(0.45, 0.65, sin(time * 0.3 + surge_x + surge_y));
+    let surge_pattern2 = smoothstep(0.55, 0.75, sin(time * 0.2 - surge_x + surge_y * 2.0));
+    let surge_pattern3 = smoothstep(0.65, 0.85, cos(time * 0.15 + surge_x * 2.0 - surge_y));
+    
+    // Make surges extremely subtle, almost imperceptible
+    // More selective timing with higher threshold
+    let subtle_surge_timing = smoothstep(0.8, 0.95, sin(time * surge_frequency * 6.28 + surge_phase * 10.0));
+    
+    // Drastically reduced intensity and only active during very brief moments
+    let intensity_surge = max(surge_pattern1, max(surge_pattern2, surge_pattern3)) 
+                        * intensity * 0.12 * subtle_surge_timing; // Reduced by ~3x
+    
     // Time-varying parameters for color animation
     let t1 = sin(time * 0.3) * 0.5 + 0.5;
     let t2 = cos(time * 0.2) * 0.5 + 0.5;
@@ -401,10 +373,24 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Add fine detail to the color mixing for more complexity
     let mixed_color = mix(color1, color2, t3 * dist_factor + detail_intensity + fine_detail * 0.5);
     
+    // Barely visible microdetail pattern
+    let micro_noise_coord = noise_coord * 12.0 + vec2<f32>(time * 0.4, time * -0.3); // Lower frequency
+    let micro_noise = fbm(micro_noise_coord, 2) * 0.07 * intensity; // Drastically reduced
+    let micro_detail = smoothstep(0.35, 0.65, sin(coord.y * 30.0 + large_noise * 10.0)) * // Lower frequency
+                      intensity * 0.08; // Drastically reduced
+    
     // Apply intensity to color and convert back to linear RGB
-    // Include fine detail layer in the final intensity
-    let aurora_lab_color = mixed_color * (intensity + detail_intensity * 0.7 + fine_detail * 0.6);
-    let rgb_color = oklab_to_linear_srgb(aurora_lab_color);
+    // Include all detail layers and intensity surge in the final intensity
+    let aurora_lab_color = mixed_color * (intensity + detail_intensity * 0.7 + fine_detail * 0.6 + 
+                                         micro_noise + micro_detail + intensity_surge);
+    
+    // Create a specific surge color that's more vibrant
+    let surge_color = mix(green, vec3<f32>(0.9, -0.1, 0.2), 0.3); // Brighter, slightly more yellowish
+    let surge_contribution = surge_color * intensity_surge * 0.7;
+    
+    // Final color with surge
+    let aurora_with_surge = aurora_lab_color + surge_contribution;
+    let rgb_color = oklab_to_linear_srgb(aurora_with_surge);
     
     // Add a subtle glow effect
     let glow = intensity * 0.4;
@@ -454,12 +440,40 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                        aurora2_intensity * 0.2;
     let aurora2_wisp_color = oklab_to_linear_srgb(mix(red, pink, 0.3) * aurora2_wisps);
     
+    // Add vertical curtain-like structures with fine detail that appear randomly
+    // Create a pulsing pattern with approximately 2-3 second intervals
+    // At 60fps, we need roughly 120-180 frames per cycle, so a frequency of about 0.03-0.05 Hz
+    let pulse_frequency = 0.04; // Adjust for cycle time (lower = longer cycle)
+    let pulse_phase = hash(floor(vec2<f32>(time * pulse_frequency, 0.0))); // Random phase per interval
+    let pulse_intensity = smoothstep(0.75, 0.95, sin(time * pulse_frequency * 6.28 + pulse_phase * 6.28));
+    
+    // Make curtains even more subtle and rare
+    let curtain_x = coord.x * 15.0 + large_noise * 5.0; // Lower frequency
+    // Much rarer pulses by using higher threshold
+    let pulse_visibility = smoothstep(0.85, 0.95, sin(time * pulse_frequency * 6.28 + pulse_phase * 6.28));
+    let curtain_pattern = smoothstep(0.45, 0.65, sin(curtain_x + time * 0.7)) * // Wider smoothstep
+                        smoothstep(0.3, 0.7, intensity) * 0.03 * // Drastically reduced intensity
+                        pulse_visibility; // Extremely selective timing
+    
+    // Drastically reduce the ray pattern to near-imperceptible levels
+    // Fine rays emanating from curtains with extremely subtle presence
+    let rays_pattern = smoothstep(0.40, 0.70, // Very wide smoothstep for soft edges
+                                 sin(coord.y * 40.0 + large_noise * 8.0 + time * 0.1) * // Lower frequency
+                                 smoothstep(0.45, 0.65, sin(curtain_x + time * 0.7))) // Wider smoothstep
+                     * intensity * 0.04 * // Drastically reduced intensity
+                     pulse_visibility; // Only during the rare pulse moments
+    
+    let curtain_color = oklab_to_linear_srgb(mix(green, teal, 0.5) * curtain_pattern);
+    let rays_color = oklab_to_linear_srgb(mix(green, blue, 0.4) * rays_pattern);
+    
     // Combine all effects for final aurora color
     let aurora_color = rgb_color + glow_color * glow + 
                       vec3<f32>(0.1, 0.15, 0.2) * cross_effect + 
                       rgb_color * wisps +
                       aurora2_rgb + // Add the second aurora layer
-                      aurora2_wisp_color; // Add additional wisps to second aurora
+                      aurora2_wisp_color + // Additional wisps to second aurora
+                      curtain_color + // Add curtain structures
+                      rays_color; // Add vertical rays
     
     // Generate stars and celestial elements
     let star_color = stars(coord, time);
@@ -514,7 +528,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let brightest_stars = star_color * 0.6;
     
     // Final color with stars showing through aurora
-    let final_color = with_aurora + brightest_stars;
+    result_color = with_aurora + brightest_stars;
     
-    return vec4<f32>(final_color, intensity * 0.9 + 0.1);
+    return vec4<f32>(result_color, intensity * 0.9 + 0.1);
 }
